@@ -2,11 +2,15 @@ package com.jiggy.wardrobe;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Parcelable;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.Menu;
@@ -30,6 +34,7 @@ import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Random;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
@@ -119,7 +124,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     public void callCam(int type) {
-        Intent camera = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+       /* Intent camera = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
         Uri uriSavedImage = null;
         try {
             uriSavedImage = FileProvider.getUriForFile(this, BuildConfig.APPLICATION_ID + ".provider",
@@ -130,7 +135,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             startActivityForResult(camera, CAPTURE_IMAGE_ACTIVITY);
         } catch (IOException e) {
             e.printStackTrace();
-        }
+        }*/
+        startActivityForResult(getPickImageChooserIntent(type), type);
     }
 
     @Override
@@ -172,6 +178,64 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 break;
         }
     }
+    Uri outputFileUri = null;
+    public Intent getPickImageChooserIntent(int type) {
+
+        // Determine Uri of camera image to save.
+
+        try {
+            outputFileUri = FileProvider.getUriForFile(this, BuildConfig.APPLICATION_ID + ".provider",
+                createImageFile(type));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        List<Intent> allIntents = new ArrayList<>();
+        PackageManager packageManager = getPackageManager();
+
+        // collect all camera intents
+        Intent captureIntent = new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+        List<ResolveInfo> listCam = packageManager.queryIntentActivities(captureIntent, 0);
+        for (ResolveInfo res : listCam) {
+            Intent intent = new Intent(captureIntent);
+            intent.setComponent(new ComponentName(res.activityInfo.packageName, res.activityInfo.name));
+            intent.setPackage(res.activityInfo.packageName);
+            if (outputFileUri != null) {
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, outputFileUri);
+            }
+            allIntents.add(intent);
+        }
+
+        // collect all gallery intents
+        Intent galleryIntent = new Intent(Intent.ACTION_GET_CONTENT);
+        galleryIntent.setType("image/*");
+        List<ResolveInfo> listGallery = packageManager.queryIntentActivities(galleryIntent, 0);
+        for (ResolveInfo res : listGallery) {
+            Intent intent = new Intent(galleryIntent);
+            intent.setComponent(new ComponentName(res.activityInfo.packageName, res.activityInfo.name));
+            intent.setPackage(res.activityInfo.packageName);
+            if (outputFileUri != null) {
+                intent.putExtra(MediaStore.EXTRA_OUTPUT, outputFileUri);
+            }
+            allIntents.add(intent);
+        }
+
+        Intent mainIntent =   allIntents.get(allIntents.size() - 1);
+        for (Intent intent : allIntents) {
+            if (intent.getComponent().getClassName().equals("com.android.documentsui.DocumentsActivity")) {
+                mainIntent = intent;
+                break;
+            }
+        }
+        allIntents.remove(mainIntent);
+        Intent chooserIntent = Intent.createChooser(mainIntent, "Select source");
+
+        chooserIntent.putExtra(Intent.EXTRA_INITIAL_INTENTS, allIntents.toArray(new Parcelable[allIntents.size()]));
+
+        return chooserIntent;
+    }
+
+
 
     public void doShuffle() {
         Random rand = new Random();
@@ -204,12 +268,37 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }
             }
 
+        } else if (requestCode == KEY_CAM_PER_FOR_ADD_SHIRT||requestCode == KEY_CAM_PER_FOR_ADD_PANT) {
+            Bitmap bitmap;
+            if (resultCode == Activity.RESULT_OK) {
+                if (data != null) {
+                    Uri picUri = getPickImageResultUri(data);
+                    File file = new File(picUri.getPath());
+                    if (requestCode == KEY_CAM_PER_FOR_ADD_PANT) {
+                        pantList.remove(pantList.size() - 1);
+                        pantList.add("file:" + file.getAbsolutePath());
+                    } else {
+                        shirtList.remove(shirtList.size() - 1);
+                        shirtList.add(""+picUri);
+                    }
+                }
+                setViewPagerAdapter();
+            }
         }
 
 
         super.onActivityResult(requestCode, resultCode, data);
     }
+    public Uri getPickImageResultUri(Intent data) {
+        boolean isCamera = true;
+        if (data != null) {
+            String action = data.getAction();
+            isCamera = action != null && action.equals(MediaStore.ACTION_IMAGE_CAPTURE);
+        }
 
+
+        return isCamera ? outputFileUri : data.getData();
+    }
     public void openCam(int type) {
 
         if (ActivityCompat.checkSelfPermission(MainActivity.this,
